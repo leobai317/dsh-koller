@@ -5,6 +5,7 @@ import { KollerPet } from './KollerPet.tsx'
 import { injectKollerCss } from './style.ts'
 
 const POLL_MS = 800
+const HIDDEN_POLL_MS = 30000
 const CELEBRATE_REFRESH_PADDING_MS = 100
 
 async function apiFetch<T>(path: string, body?: unknown): Promise<T> {
@@ -74,22 +75,24 @@ export function apply(): void {
     }).finally(() => { pending = false })
   }
 
-  const start = (): void => {
-    if (timer === undefined && document.visibilityState === 'visible') {
-      timer = window.setInterval(pollNow, POLL_MS)
-    }
-  }
-  const stop = (): void => {
-    if (timer !== undefined) {
-      window.clearInterval(timer)
+  const scheduleNextPoll = (delay?: number): void => {
+    if (timer !== undefined) window.clearTimeout(timer)
+    timer = window.setTimeout(() => {
       timer = undefined
-    }
+      pollNow()
+      scheduleNextPoll()
+    }, delay ?? (document.visibilityState === 'visible' ? POLL_MS : HIDDEN_POLL_MS))
   }
   const onVisibility = (): void => {
-    if (document.visibilityState === 'visible') { pollNow(); start() } else { stop() }
+    if (document.visibilityState === 'visible') {
+      pollNow()
+      scheduleNextPoll(POLL_MS)
+    } else {
+      scheduleNextPoll(HIDDEN_POLL_MS)
+    }
   }
 
   pollNow()
-  start()
+  scheduleNextPoll()
   document.addEventListener('visibilitychange', onVisibility)
 }
