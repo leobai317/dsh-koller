@@ -5,6 +5,8 @@ export interface KollerStateSnapshot {
   image: KollerImage
   bubble: string
   phase: KollerPhase
+  /** 仅在 done 庆祝阶段出现：距离自动回落到 idle 的剩余毫秒数。 */
+  celebrateRemainingMs?: number
 }
 
 export interface KollerStateInput {
@@ -40,7 +42,15 @@ export class KollerStateMachine {
   onActivityStatus(input: KollerStateInput): void {
     this.phase = input.phase
     this.line = input.line
-    if (input.phase === 'done') this.doneAt = this.now()
+    this.doneAt = input.phase === 'done' ? this.now() : undefined
+  }
+
+  /** 结束 done 庆祝并回落到 idle；仅在仍处于 done 时生效。 */
+  settleCelebration(): void {
+    if (this.phase !== 'done') return
+    this.phase = 'idle'
+    this.line = undefined
+    this.doneAt = undefined
   }
 
   onSessionDisposed(): void {
@@ -51,15 +61,17 @@ export class KollerStateMachine {
 
   render(): KollerStateSnapshot {
     const nowMs = this.now()
-    const phase = this.phase === 'done' && this.doneAt !== undefined && nowMs - this.doneAt >= CELEBRATE_MS
-      ? 'idle'
-      : this.phase
-    let bubble = BUBBLES[phase]
-    if (phase === 'tool' && this.line !== undefined) bubble = this.line
+    if (this.phase === 'done' && this.doneAt !== undefined && nowMs - this.doneAt >= CELEBRATE_MS) {
+      this.settleCelebration()
+    }
+    const bubble = this.phase === 'tool' && this.line !== undefined ? this.line : BUBBLES[this.phase]
     return {
       image: imageForPhase(this.phase, nowMs, this.doneAt),
       bubble,
-      phase,
+      phase: this.phase,
+      ...(this.phase === 'done' && this.doneAt !== undefined
+        ? { celebrateRemainingMs: Math.max(0, this.doneAt + CELEBRATE_MS - nowMs) }
+        : {}),
     }
   }
 }

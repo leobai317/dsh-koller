@@ -5,6 +5,7 @@ import { KollerPet } from './KollerPet.tsx'
 import { injectKollerCss } from './style.ts'
 
 const POLL_MS = 800
+const CELEBRATE_REFRESH_PADDING_MS = 100
 
 async function apiFetch<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, body === undefined
@@ -37,6 +38,7 @@ export function apply(): void {
 
   let snapshot: KollerStateView | null = null
   let timer: number | undefined
+  let celebrateTimer: number | undefined
   let pending = false
 
   const render = (): void => {
@@ -56,6 +58,16 @@ export function apply(): void {
     pending = true
     kollerApi.state().then((value) => {
       snapshot = value
+      if (value.celebrateRemainingMs !== undefined) {
+        if (celebrateTimer !== undefined) window.clearTimeout(celebrateTimer)
+        celebrateTimer = window.setTimeout(() => {
+          celebrateTimer = undefined
+          pollNow()
+        }, value.celebrateRemainingMs + CELEBRATE_REFRESH_PADDING_MS)
+      } else if (celebrateTimer !== undefined) {
+        window.clearTimeout(celebrateTimer)
+        celebrateTimer = undefined
+      }
       render()
     }, () => {
       // transport error: keep last snapshot

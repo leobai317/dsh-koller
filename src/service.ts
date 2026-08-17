@@ -1,6 +1,6 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { KollerStateMachine, type KollerStateSnapshot } from './state.ts'
+import { CELEBRATE_MS, KollerStateMachine, type KollerStateInput, type KollerStateSnapshot } from './state.ts'
 import {
   DISPLAY_INSET_MAX,
   DISPLAY_SIZE_MAX,
@@ -40,27 +40,30 @@ export class KollerService extends Service {
   private readonly machine = new KollerStateMachine()
   private readonly persistDir: string
   private persist: KollerPersist
+  private celebrateTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(ctx: Context, config: KollerConfig = {}) {
     super(ctx, 'koller')
     this.persistDir = config.persistDir ?? kollerHomeDir()
     this.persist = loadKollerPersist(this.persistDir)
+    ctx.effect(() => () => this.clearCelebrateTimer(), 'koller: celebration timer')
     ctx.on('session/event', (session: Session, event: SessionEvent) => {
       switch (event.type) {
         case 'turn/start':
-          this.machine.onActivityStatus({ phase: 'waiting' })
+          this.acceptActivity({ phase: 'waiting' })
           break
         case 'step/start':
-          this.machine.onActivityStatus({ phase: 'thinking' })
+          this.acceptActivity({ phase: 'thinking' })
           break
         case 'tool/call':
-          this.machine.onActivityStatus({ phase: 'tool', line: `工具：${event.data.name}` })
+          this.acceptActivity({ phase: 'tool', line: `工具：${event.data.name}` })
           break
         case 'turn/end':
           if (event.data.reason.kind === 'completed') {
-            this.machine.onActivityStatus({ phase: 'done' })
+            this.acceptActivity({ phase: 'done' })
+            this.scheduleCelebrationEnd()
           } else {
-            this.machine.onActivityStatus({ phase: 'idle' })
+            this.acceptActivity({ phase: 'idle' })
           }
           break
         default:
@@ -68,6 +71,7 @@ export class KollerService extends Service {
       }
     })
     ctx.on('session/disposed', () => {
+      this.clearCelebrateTimer()
       this.machine.onSessionDisposed()
     })
   }
@@ -104,6 +108,25 @@ export class KollerService extends Service {
     this.persist = { ...this.persist, name: trimmed }
     this.flush()
     return { ok: true, name: trimmed }
+  }
+
+  private acceptActivity(input: KollerStateInput): void {
+    this.clearCelebrateTimer()
+    this.machine.onActivityStatus(input)
+  }
+
+  private scheduleCelebrationEnd(): void {
+    this.clearCelebrateTimer()
+    this.celebrateTimer = setTimeout(() => {
+      this.celebrateTimer = undefined
+      this.machine.settleCelebration()
+    }, CELEBRATE_MS)
+  }
+
+  private clearCelebrateTimer(): void {
+    if (this.celebrateTimer === undefined) return
+    clearTimeout(this.celebrateTimer)
+    this.celebrateTimer = undefined
   }
 
   private flush(): void {
