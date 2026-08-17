@@ -1,0 +1,4 @@
+# dsh-koller bundle patch: inserts its plugin row into the web plugin roster.
+- insert:
+    - id: koller
+      name: '@leo6666666/dsh-koller'
